@@ -11,6 +11,7 @@ enum QUARTER {
 };
 
 int **dM1, **dM2, **dM3, **dM4, **dM5, **dM6, **dM7;
+int *tmp;
 
 __global__
 void saxpy(int n, float a, float *x, float *y)
@@ -66,7 +67,7 @@ void matAdd(int* A, int* B, int* C, int org_dim, QUARTER qA, QUARTER qB, QUARTER
 }
 
 __global__
-void matCopy(int* toM, int* fromM, int org_dim, QUARTER fromQ, QUARTER toQ, int k) {
+void matCopy(int* fromM, int* toM, int org_dim, QUARTER fromQ, QUARTER toQ, int k) {
     printf("test\n");
     int curr_dim = 1 << k;
     int new_dim = curr_dim /2;
@@ -84,7 +85,7 @@ __global__
 void matMul(int* A, int* B, int* C, int curr_dim) {
     assert(curr_dim == 1);
     if (threadIdx.x == 0 && threadIdx.y == 0) {
-        C[0] = A[0] + B[0];
+        C[0] = A[0] * B[0];
     }
 }
 
@@ -99,6 +100,11 @@ static void printMat(int* mat, int xDim, int yDim, char* name) {
     }
 }
 
+static void printDevMat(int* mat, int xDim, int yDim, char* name) {
+    cudaMemcpy(tmp, mat, xDim*yDim*sizeof(int), cudaMemcpyDeviceToHost);
+    printMat(tmp, xDim, yDim, name);
+}
+
 void Strassen(int** dA, int** dB, int** dC, int org_dim, int k) {
     int curr_dim = 1 << k;
     int new_dim = org_dim /2;
@@ -111,32 +117,32 @@ void Strassen(int** dA, int** dB, int** dC, int org_dim, int k) {
         return;
     }
 
-    // M1
+    // M1v
     matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m11, m22, m11, k);
     matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m11, m22, m11, k);
     Strassen(dA, dB, dM1, org_dim, k-1);
 
-    // M2
+    // M2v
     matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m21, m22, m11, k);
-    matCopy<<<1, grid>>>(dB[k-1], dB[k], org_dim, m11, m11, k);
+    matCopy<<<1, grid>>>(dB[k], dB[k-1], org_dim, m11, m11, k);
     Strassen(dA, dB, dM2, org_dim, k-1);
 
-    // M3
-    matCopy<<<1, grid>>>(dA[k-1], dA[k], org_dim, m11, m11, k);
+    // M3v
+    matCopy<<<1, grid>>>(dA[k], dA[k-1], org_dim, m11, m11, k);
     matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m12, m22, m11, k, true);
     Strassen(dA, dB, dM3, org_dim, k-1);
 
-    // M4
-    matCopy<<<1, grid>>>(dA[k-1], dA[k], org_dim, m22, m11, k);
+    // M4v
+    matCopy<<<1, grid>>>(dA[k], dA[k-1], org_dim, m22, m11, k);
     matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m21, m11, m11, k, true);
     Strassen(dA, dB, dM4, org_dim, k-1);
 
-    // M5
+    // M5v
     matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m11, m12, m11, k);
-    matCopy<<<1, grid>>>(dB[k-1], dB[k], org_dim, m22, m11, k);
+    matCopy<<<1, grid>>>(dB[k], dB[k-1], org_dim, m22, m11, k);
     Strassen(dA, dB, dM5, org_dim, k-1);
 
-    // M6
+    // M6v
     matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m21, m11, m11, k, true);
     matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m11, m12, m11, k);
     Strassen(dA, dB, dM6, org_dim, k-1);
@@ -148,20 +154,20 @@ void Strassen(int** dA, int** dB, int** dC, int org_dim, int k) {
 
 
     // C11
-    matAdd<<<1, grid>>>(dM1[k-1], dM4[k-1], dM1[k], org_dim, m11, m11, m11, k-1);
-    matAdd<<<1, grid>>>(dM5[k-1], dM7[k-1], dM5[k], org_dim, m11, m11, m11, k-1);
-    matAdd<<<1, grid>>>(dM1[k], dM5[k], dC[k], org_dim, m11, m11, m11, k-1, true);
+    matAdd<<<1, grid>>>(dM1[k-1], dM4[k-1], dM1[k], org_dim, m11, m11, m11, k);
+    matAdd<<<1, grid>>>(dM5[k-1], dM7[k-1], dM5[k], org_dim, m11, m11, m11, k, true);
+    matAdd<<<1, grid>>>(dM1[k], dM5[k], dC[k], org_dim, m11, m11, m11, k, true);
 
     // C12
-    matAdd<<<1, grid>>>(dM3[k-1], dM5[k-1], dC[k], org_dim, m11, m11, m12, k-1);
+    matAdd<<<1, grid>>>(dM3[k-1], dM5[k-1], dC[k], org_dim, m11, m11, m12, k);
 
     // C21
-    matAdd<<<1, grid>>>(dM2[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m21, k-1);
+    matAdd<<<1, grid>>>(dM2[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m21, k);
 
     // C22
-    matAdd<<<1, grid>>>(dM1[k-1], dM2[k-1], dM1[k], org_dim, m11, m11, m11, k-1, true);
-    matAdd<<<1, grid>>>(dM3[k-1], dM6[k-1], dM3[k], org_dim, m11, m11, m11, k-1);
-    matAdd<<<1, grid>>>(dM1[k], dM3[k], dC[k], org_dim, m11, m11, m22, k-1);
+    matAdd<<<1, grid>>>(dM1[k-1], dM2[k-1], dM1[k], org_dim, m11, m11, m11, k, true);
+    matAdd<<<1, grid>>>(dM3[k-1], dM6[k-1], dM3[k], org_dim, m11, m11, m11, k);
+    matAdd<<<1, grid>>>(dM1[k], dM3[k], dC[k], org_dim, m11, m11, m22, k);
 
 }
 
@@ -183,6 +189,7 @@ int main(int argc, char** argv)
     hA = (int*)malloc(bytes);
     hB = (int*)malloc(bytes);
     hC = (int*)malloc(bytes);
+    tmp = (int*)malloc(bytes);
 
     // init host matrices
 
@@ -190,6 +197,7 @@ int main(int argc, char** argv)
         hA[i] = rand() % MAXINT;
         hB[i] = rand() % MAXINT;
         hC[i] = 0;
+        tmp[i] = 0;
     }
 
     // alloc device matrices
@@ -243,11 +251,11 @@ int main(int argc, char** argv)
     printMat(hB, n, n, "B");
     printMat(hC, n, n, "C");
     
-    // Strassen(dA, dB, dC, n, k);
-    int new_dim = n /2;
-    dim3 grid(new_dim, new_dim);
+    Strassen(dA, dB, dC, n, k);
+    // int new_dim = n /2;
+    // dim3 grid(new_dim, new_dim);
     // matAdd<<<1, grid>>>(dA[k], dB[k], dC[k], n, m11, m12, m12, k, true);
-    matCopy<<<1, grid>>>(dA[k], dC[k], n, m11, m11, k-1);
+    // matCopy<<<1, grid>>>(dC[k], dA[k], n, m12, m21, k);
 
     cudaMemcpy(hC, dC[k], bytes, cudaMemcpyDeviceToHost);
     printMat(hC, n, n, "C");
