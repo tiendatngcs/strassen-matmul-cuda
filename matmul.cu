@@ -190,12 +190,19 @@ static void free_device_matrix_from_host(Matrix M) {
     cudaFree(M.elements);
 }
 
+void* strassenMatMul(int**)
+
 
 // Host code
-int main()
+int main(int argc, char** argv)
 {
-    int k = 0;
+    if (argc != 2) {
+        printf("Usage: %s <k>\n", argv[0]);
+    }
+
+    int k = atoi(argv[1]);
     int n = 1 << k;
+    printf("Matmul of size %d x %d\n", n, n);
     size_t size = n*n;
     size_t bytes = n*n*sizeof(float);
     // Allocate input vectors h_A and h_B in host memory
