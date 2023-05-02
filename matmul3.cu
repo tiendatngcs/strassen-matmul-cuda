@@ -68,7 +68,6 @@ void matAdd(int* A, int* B, int* C, int org_dim, QUARTER qA, QUARTER qB, QUARTER
 
 __global__
 void matCopy(int* fromM, int* toM, int org_dim, QUARTER fromQ, QUARTER toQ, int k) {
-    printf("test\n");
     int curr_dim = 1 << k;
     int new_dim = curr_dim /2;
     int fromx_offset = 0;
@@ -79,6 +78,18 @@ void matCopy(int* fromM, int* toM, int org_dim, QUARTER fromQ, QUARTER toQ, int 
     get_sub_offset(curr_dim, fromQ, fromx_offset, fromy_offset);
     get_sub_offset(curr_dim, toQ, tox_offset, toy_offset);
     toM[(tox_offset+threadIdx.x)*org_dim + toy_offset + threadIdx.y] = fromM[(fromx_offset+threadIdx.x)*org_dim + fromy_offset + threadIdx.y];
+}
+
+static void normalMatMul(int*A, int*B, int*C, int dim) {
+    for (int i = 0; i < dim; i ++) {
+        for (int j = 0; j < dim; j++) {
+            // for the current row of A and col of B
+            C[i*dim + j] = 0;
+            for (int k = 0; k < dim; k ++) {
+                C[i*dim + j] += A[i*dim+k] * B[k*dim + j];
+            }
+        }
+    }
 }
 
 __global__
@@ -154,9 +165,9 @@ void Strassen(int** dA, int** dB, int** dC, int org_dim, int k) {
 
 
     // C11
-    matAdd<<<1, grid>>>(dM1[k-1], dM4[k-1], dM1[k], org_dim, m11, m11, m11, k);
-    matAdd<<<1, grid>>>(dM5[k-1], dM7[k-1], dM5[k], org_dim, m11, m11, m11, k, true);
-    matAdd<<<1, grid>>>(dM1[k], dM5[k], dC[k], org_dim, m11, m11, m11, k, true);
+    matAdd<<<1, grid>>>(dM1[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m11, k);
+    matAdd<<<1, grid>>>(dC[k], dM5[k-1], dC[k], org_dim, m11, m11, m11, k, true);
+    matAdd<<<1, grid>>>(dC[k], dM7[k-1], dC[k], org_dim, m11, m11, m11, k);
 
     // C12
     matAdd<<<1, grid>>>(dM3[k-1], dM5[k-1], dC[k], org_dim, m11, m11, m12, k);
@@ -165,9 +176,9 @@ void Strassen(int** dA, int** dB, int** dC, int org_dim, int k) {
     matAdd<<<1, grid>>>(dM2[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m21, k);
 
     // C22
-    matAdd<<<1, grid>>>(dM1[k-1], dM2[k-1], dM1[k], org_dim, m11, m11, m11, k, true);
-    matAdd<<<1, grid>>>(dM3[k-1], dM6[k-1], dM3[k], org_dim, m11, m11, m11, k);
-    matAdd<<<1, grid>>>(dM1[k], dM3[k], dC[k], org_dim, m11, m11, m22, k);
+    matAdd<<<1, grid>>>(dM1[k-1], dM2[k-1], dC[k], org_dim, m11, m11, m22, k, true);
+    matAdd<<<1, grid>>>(dC[k], dM3[k-1], dC[k], org_dim, m22, m11, m22, k);
+    matAdd<<<1, grid>>>(dC[k], dM6[k-1], dC[k], org_dim, m22, m11, m22, k);
 
 }
 
@@ -184,11 +195,12 @@ int main(int argc, char** argv)
     int n = 1 << k;
     int size = n*n;
     int bytes = size*sizeof(int);
-    int *hA, *hB, *hC;
+    int *hA, *hB, *hC, *testC;
     int **dA, **dB, **dC;
     hA = (int*)malloc(bytes);
     hB = (int*)malloc(bytes);
     hC = (int*)malloc(bytes);
+    testC = (int*)malloc(bytes);
     tmp = (int*)malloc(bytes);
 
     // init host matrices
@@ -197,14 +209,15 @@ int main(int argc, char** argv)
         hA[i] = rand() % MAXINT;
         hB[i] = rand() % MAXINT;
         hC[i] = 0;
+        testC[i] = 0;
         tmp[i] = 0;
     }
 
     // alloc device matrices
 
-    dA = (int**)malloc(k+1);
-    dB = (int**)malloc(k+1);
-    dC = (int**)malloc(k+1);
+    dA = (int**)malloc((k+1)*sizeof(int*));
+    dB = (int**)malloc((k+1)*sizeof(int*));
+    dC = (int**)malloc((k+1)*sizeof(int*));
     for (int i = 0; i < k+1; i++) {
         cudaMalloc(&dA[i], bytes);
         cudaMalloc(&dB[i], bytes);
@@ -222,13 +235,13 @@ int main(int argc, char** argv)
     }
 
     // alloc temp matrices
-    dM1 = (int**)malloc(k+1);
-    dM2 = (int**)malloc(k+1);
-    dM3 = (int**)malloc(k+1);
-    dM4 = (int**)malloc(k+1);
-    dM5 = (int**)malloc(k+1);
-    dM6 = (int**)malloc(k+1);
-    dM7 = (int**)malloc(k+1);
+    dM1 = (int**)malloc((k+1)*sizeof(int*));
+    dM2 = (int**)malloc((k+1)*sizeof(int*));
+    dM3 = (int**)malloc((k+1)*sizeof(int*));
+    dM4 = (int**)malloc((k+1)*sizeof(int*));
+    dM5 = (int**)malloc((k+1)*sizeof(int*));
+    dM6 = (int**)malloc((k+1)*sizeof(int*));
+    dM7 = (int**)malloc((k+1)*sizeof(int*));
     for (int i = 0; i < k+1; i++) {
         cudaMalloc(&dM1[i], bytes);
         cudaMalloc(&dM2[i], bytes);
@@ -249,7 +262,7 @@ int main(int argc, char** argv)
 
     printMat(hA, n, n, "A");
     printMat(hB, n, n, "B");
-    printMat(hC, n, n, "C");
+    printMat(hC, n, n, "init C");
     
     Strassen(dA, dB, dC, n, k);
     // int new_dim = n /2;
@@ -258,8 +271,20 @@ int main(int argc, char** argv)
     // matCopy<<<1, grid>>>(dC[k], dA[k], n, m12, m21, k);
 
     cudaMemcpy(hC, dC[k], bytes, cudaMemcpyDeviceToHost);
-    printMat(hC, n, n, "C");
+    printMat(hC, n, n, "result C");
 
+    normalMatMul(hA, hB, testC, n);
+    printMat(testC, n, n, "test C");
+
+    int err_count = 0;
+    for (int i = 0; i < size; i++) {
+        if (hC[i] != testC[i]) err_count ++;
+    }
+    if (err_count == 0) {
+        printf("Congrats, matmul calculated withut errors!\n");
+    } else {
+        printf("Houston, we have a problem! Err_count = %d\n", err_count);
+    }
 
     for (int i = 0; i < k+1; i++) {
         cudaFree(dA[i]);
@@ -275,7 +300,6 @@ int main(int argc, char** argv)
         cudaFree(dM7[i]);
     }
 
-
     free(dM1);
     free(dM2);
     free(dM3);
@@ -289,4 +313,6 @@ int main(int argc, char** argv)
     free(hA);
     free(hB);
     free(hC);
+    free(tmp);
+    free(testC);
 }
