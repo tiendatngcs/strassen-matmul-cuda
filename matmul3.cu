@@ -23,25 +23,17 @@ static void calculate_block_thread_dim(int k, int& block_dim, int& thread_dim) {
     block_dim = matrix_dim/16<1? 1 : matrix_dim/16;
     thread_dim = matrix_dim / block_dim;
     
-    printf("------------------");
-    printf("matrix_dim %d\n", matrix_dim);
-    printf("block_dim %d\n", block_dim);
-    printf("thread_dim %d\n", thread_dim);
-    printf("num_blocks %d\n", block_dim*block_dim);
-    printf("num_threads %d\n", thread_dim*thread_dim);
+    // printf("------------------");
+    // printf("matrix_dim %d\n", matrix_dim);
+    // printf("block_dim %d\n", block_dim);
+    // printf("thread_dim %d\n", thread_dim);
+    // printf("num_blocks %d\n", block_dim*block_dim);
+    // printf("num_threads %d\n", thread_dim*thread_dim);
 }
 
 int **dM1, **dM2, **dM3, **dM4, **dM5, **dM6, **dM7;
 int *tmp;
 int block_dim;
-
-__global__
-void saxpy(int n, float a, float *x, float *y)
-{
-    printf("sadfas\n");
-  int i = blockIdx.x*blockDim.x + threadIdx.x;
-  if (i < n) y[i] = a*x[i] + y[i];
-}
 
 __device__
 static void get_sub_offset(int curr_dim, QUARTER q, int& x_offset, int& y_offset) {
@@ -380,7 +372,7 @@ int main(int argc, char** argv)
         if (hC[i] != testC[i]) err_count ++;
     }
     if (err_count == 0) {
-        printf("Congrats, matmul calculated withut errors!\n");
+        printf("Congrats, matmul calculated correctly!\n");
     } else {
         printf("Houston, we have a problem! Err_count = %d\n", err_count);
     }
