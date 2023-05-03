@@ -1,3 +1,9 @@
+/*
+module load intel CUDA
+compile
+nvcc -ccbin=icc -o matmul.exe matmul.cu
+*/
+
 #include <stdio.h>
 #include <stdlib.h>     /* srand, rand */
 #include <assert.h>
@@ -10,8 +16,24 @@ enum QUARTER {
     m22
 };
 
+static void calculate_block_thread_dim(int k, int& block_dim, int& thread_dim) {
+    // block size should be in multiple of 32
+    // make num threads to be 256 = 16*16
+    int matrix_dim = 1 << k;
+    block_dim = matrix_dim/16<1? 1 : matrix_dim/16;
+    thread_dim = matrix_dim / block_dim;
+    
+    printf("------------------");
+    printf("matrix_dim %d\n", matrix_dim);
+    printf("block_dim %d\n", block_dim);
+    printf("thread_dim %d\n", thread_dim);
+    printf("num_blocks %d\n", block_dim*block_dim);
+    printf("num_threads %d\n", thread_dim*thread_dim);
+}
+
 int **dM1, **dM2, **dM3, **dM4, **dM5, **dM6, **dM7;
 int *tmp;
+int block_dim;
 
 __global__
 void saxpy(int n, float a, float *x, float *y)
@@ -55,15 +77,18 @@ void matAdd(int* A, int* B, int* C, int org_dim, QUARTER qA, QUARTER qB, QUARTER
     int Cx_offset = 0;
     int Cy_offset = 0;
 
+    int thread_posx = blockIdx.x * blockDim.x + threadIdx.x;
+    int thread_posy = blockIdx.y * blockDim.y + threadIdx.y;
+
     get_sub_offset(curr_dim, qA, Ax_offset, Ay_offset);
     get_sub_offset(curr_dim, qB, Bx_offset, By_offset);
     get_sub_offset(curr_dim, qC, Cx_offset, Cy_offset);
 
     if (is_subtract) {
-        C[(Cx_offset+threadIdx.x)*org_dim + Cy_offset + threadIdx.y] = A[(Ax_offset+threadIdx.x)*org_dim + Ay_offset + threadIdx.y] - B[(Bx_offset+threadIdx.x)*org_dim + By_offset + threadIdx.y];
+        C[(Cx_offset+thread_posx)*org_dim + Cy_offset + thread_posy] = A[(Ax_offset+thread_posx)*org_dim + Ay_offset + thread_posy] - B[(Bx_offset+thread_posx)*org_dim + By_offset + thread_posy];
         return;
     }
-    C[(Cx_offset+threadIdx.x)*org_dim + Cy_offset + threadIdx.y] = A[(Ax_offset+threadIdx.x)*org_dim + Ay_offset + threadIdx.y] + B[(Bx_offset+threadIdx.x)*org_dim + By_offset + threadIdx.y];
+    C[(Cx_offset+thread_posx)*org_dim + Cy_offset + thread_posy] = A[(Ax_offset+thread_posx)*org_dim + Ay_offset + thread_posy] + B[(Bx_offset+thread_posx)*org_dim + By_offset + thread_posy];
 }
 
 __global__
@@ -75,9 +100,12 @@ void matCopy(int* fromM, int* toM, int org_dim, QUARTER fromQ, QUARTER toQ, int 
     int tox_offset = 0;
     int toy_offset = 0;
 
+    int thread_posx = blockIdx.x * blockDim.x + threadIdx.x;
+    int thread_posy = blockIdx.y * blockDim.y + threadIdx.y;
+
     get_sub_offset(curr_dim, fromQ, fromx_offset, fromy_offset);
     get_sub_offset(curr_dim, toQ, tox_offset, toy_offset);
-    toM[(tox_offset+threadIdx.x)*org_dim + toy_offset + threadIdx.y] = fromM[(fromx_offset+threadIdx.x)*org_dim + fromy_offset + threadIdx.y];
+    toM[(tox_offset+thread_posx)*org_dim + toy_offset + thread_posy] = fromM[(fromx_offset+thread_posx)*org_dim + fromy_offset + thread_posy];
 }
 
 static void normalMatMul(int*A, int*B, int*C, int dim) {
@@ -92,12 +120,26 @@ static void normalMatMul(int*A, int*B, int*C, int dim) {
     }
 }
 
+// __global__
+// void matMul(int* A, int* B, int* C, int curr_dim) {
+//     assert(curr_dim == 1);
+//     if (threadIdx.x == 0 && threadIdx.y == 0) {
+//         C[0] = A[0] * B[0];
+//     }
+// }
+
 __global__
-void matMul(int* A, int* B, int* C, int curr_dim) {
-    assert(curr_dim == 1);
-    if (threadIdx.x == 0 && threadIdx.y == 0) {
-        C[0] = A[0] * B[0];
+void normalParallelMatMulKernel(int* A, int* B, int* C, int org_dim, int k) {
+    // each thread computes an element of C
+    int curr_dim = 1 << k;
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int col = blockIdx.y * blockDim.y + threadIdx.y;
+
+    int sum = 0;
+    for (int i = 0; i < curr_dim; i++) {
+        sum += A[row*org_dim + i] * B[i*org_dim + col];
     }
+    C[row*org_dim + col] = sum;
 }
 
 static void printMat(int* mat, int xDim, int yDim, char* name) {
@@ -116,85 +158,140 @@ static void printDevMat(int* mat, int xDim, int yDim, char* name) {
     printMat(tmp, xDim, yDim, name);
 }
 
-void Strassen(int** dA, int** dB, int** dC, int org_dim, int k) {
+void normalParallelMatMul(int* A, int* B, int* C, int org_dim, int k) {
     int curr_dim = 1 << k;
-    int new_dim = org_dim /2;
-    dim3 grid(new_dim, new_dim);
+
+    int block_dim = 0;
+    int thread_dim = 0;
+
+    calculate_block_thread_dim(k, block_dim, thread_dim);
+
+    assert(block_dim != 0);
+    assert(thread_dim != 0);
+    assert(thread_dim * block_dim == curr_dim);
+
+    dim3 blocks(block_dim, block_dim);
+    dim3 grid(thread_dim, thread_dim);
+    normalParallelMatMulKernel<<<blocks, grid>>>(A, B, C, org_dim, k);
+}
+
+
+
+void Strassen(int** dA, int** dB, int** dC, int org_dim, int k, int k_lim) {
+    int curr_dim = 1 << k;
+    int new_dim = curr_dim /2;
     // matAdd<<<1, grid>>>(dA[k], dB[k], dC[k], org_dim, m11, m11);
 
-    if (k == 0) {
-        assert(curr_dim == 1);
-        matMul<<<1, 1>>>(dA[k], dB[k], dC[k], curr_dim);
+    if (k == k_lim) {
+        // assert(curr_dim == 1);
+        // matMul<<<1, 1>>>(dA[k], dB[k], dC[k], curr_dim);
+        normalParallelMatMul(dA[k], dB[k], dC[k], org_dim, k);
         return;
     }
+    int block_dim = 0;
+    int thread_dim = 0;
 
+    calculate_block_thread_dim(k-1, block_dim, thread_dim);
+
+    assert(block_dim != 0);
+    assert(thread_dim != 0);
+    assert(thread_dim * block_dim == new_dim);
+
+    dim3 blocks(block_dim, block_dim);
+    dim3 grid(thread_dim, thread_dim);
     // M1v
-    matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m11, m22, m11, k);
-    matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m11, m22, m11, k);
-    Strassen(dA, dB, dM1, org_dim, k-1);
+    matAdd<<<blocks, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m11, m22, m11, k);
+    matAdd<<<blocks, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m11, m22, m11, k);
+    Strassen(dA, dB, dM1, org_dim, k-1, k_lim);
 
     // M2v
-    matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m21, m22, m11, k);
-    matCopy<<<1, grid>>>(dB[k], dB[k-1], org_dim, m11, m11, k);
-    Strassen(dA, dB, dM2, org_dim, k-1);
+    matAdd<<<blocks, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m21, m22, m11, k);
+    matCopy<<<blocks, grid>>>(dB[k], dB[k-1], org_dim, m11, m11, k);
+    Strassen(dA, dB, dM2, org_dim, k-1, k_lim);
 
     // M3v
-    matCopy<<<1, grid>>>(dA[k], dA[k-1], org_dim, m11, m11, k);
-    matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m12, m22, m11, k, true);
-    Strassen(dA, dB, dM3, org_dim, k-1);
+    matCopy<<<blocks, grid>>>(dA[k], dA[k-1], org_dim, m11, m11, k);
+    matAdd<<<blocks, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m12, m22, m11, k, true);
+    Strassen(dA, dB, dM3, org_dim, k-1, k_lim);
 
     // M4v
-    matCopy<<<1, grid>>>(dA[k], dA[k-1], org_dim, m22, m11, k);
-    matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m21, m11, m11, k, true);
-    Strassen(dA, dB, dM4, org_dim, k-1);
+    matCopy<<<blocks, grid>>>(dA[k], dA[k-1], org_dim, m22, m11, k);
+    matAdd<<<blocks, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m21, m11, m11, k, true);
+    Strassen(dA, dB, dM4, org_dim, k-1, k_lim);
 
     // M5v
-    matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m11, m12, m11, k);
-    matCopy<<<1, grid>>>(dB[k], dB[k-1], org_dim, m22, m11, k);
-    Strassen(dA, dB, dM5, org_dim, k-1);
+    matAdd<<<blocks, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m11, m12, m11, k);
+    matCopy<<<blocks, grid>>>(dB[k], dB[k-1], org_dim, m22, m11, k);
+    Strassen(dA, dB, dM5, org_dim, k-1, k_lim);
 
     // M6v
-    matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m21, m11, m11, k, true);
-    matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m11, m12, m11, k);
-    Strassen(dA, dB, dM6, org_dim, k-1);
+    matAdd<<<blocks, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m21, m11, m11, k, true);
+    matAdd<<<blocks, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m11, m12, m11, k);
+    Strassen(dA, dB, dM6, org_dim, k-1, k_lim);
 
     // M7
-    matAdd<<<1, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m12, m22, m11, k, true);
-    matAdd<<<1, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m21, m22, m11, k);
-    Strassen(dA, dB, dM7, org_dim, k-1);
+    matAdd<<<blocks, grid>>>(dA[k], dA[k], dA[k-1], org_dim, m12, m22, m11, k, true);
+    matAdd<<<blocks, grid>>>(dB[k], dB[k], dB[k-1], org_dim, m21, m22, m11, k);
+    Strassen(dA, dB, dM7, org_dim, k-1, k_lim);
+
+
 
 
     // C11
-    matAdd<<<1, grid>>>(dM1[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m11, k);
-    matAdd<<<1, grid>>>(dC[k], dM5[k-1], dC[k], org_dim, m11, m11, m11, k, true);
-    matAdd<<<1, grid>>>(dC[k], dM7[k-1], dC[k], org_dim, m11, m11, m11, k);
+    matAdd<<<blocks, grid>>>(dM1[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m11, k);
+    matAdd<<<blocks, grid>>>(dC[k], dM5[k-1], dC[k], org_dim, m11, m11, m11, k, true);
+    matAdd<<<blocks, grid>>>(dC[k], dM7[k-1], dC[k], org_dim, m11, m11, m11, k);
 
     // C12
-    matAdd<<<1, grid>>>(dM3[k-1], dM5[k-1], dC[k], org_dim, m11, m11, m12, k);
+    matAdd<<<blocks, grid>>>(dM3[k-1], dM5[k-1], dC[k], org_dim, m11, m11, m12, k);
 
     // C21
-    matAdd<<<1, grid>>>(dM2[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m21, k);
+    matAdd<<<blocks, grid>>>(dM2[k-1], dM4[k-1], dC[k], org_dim, m11, m11, m21, k);
 
     // C22
-    matAdd<<<1, grid>>>(dM1[k-1], dM2[k-1], dC[k], org_dim, m11, m11, m22, k, true);
-    matAdd<<<1, grid>>>(dC[k], dM3[k-1], dC[k], org_dim, m22, m11, m22, k);
-    matAdd<<<1, grid>>>(dC[k], dM6[k-1], dC[k], org_dim, m22, m11, m22, k);
+    matAdd<<<blocks, grid>>>(dM1[k-1], dM2[k-1], dC[k], org_dim, m11, m11, m22, k, true);
+    matAdd<<<blocks, grid>>>(dC[k], dM3[k-1], dC[k], org_dim, m22, m11, m22, k);
+    matAdd<<<blocks, grid>>>(dC[k], dM6[k-1], dC[k], org_dim, m22, m11, m22, k);
 
 }
+
+
 
 
 int main(int argc, char** argv)
 {
     srand (time(NULL));
-    if (argc != 2) {
-        printf("Usage: %s <k>\n", argv[0]);
+    if (argc != 3) {
+        printf("Usage: %s <k> <k_prime>\n", argv[0]);
         exit(0);
     }
 
-    int k = atoi(argv[1]);
+
+    /*
+    Strassen recur for k levels
+    Perform normal matmul after k_prime levels
+    */
+    int k   = atoi(argv[1]);
+    int k_prime  = atoi(argv[2]);
+    int k_lim = k - k_prime;
+    // int block_dim_exp = atoi(argv[3]);
+
+    if (k_prime >= k || k_prime < 1) {
+        printf("k > k_prime > 1\n");
+        exit(0);
+    }
+
+    // if (block_dim_exp >= k || block_dim_exp < 1) {
+    //     printf("k > block_dim_exp > 1\n");
+    //     exit(0);
+    // }
+
     int n = 1 << k;
     int size = n*n;
     int bytes = size*sizeof(int);
+    // block_dim = 1 << block_dim_exp;
+    // assert(block_dim <= n);
+
     int *hA, *hB, *hC, *testC;
     int **dA, **dB, **dC;
     hA = (int*)malloc(bytes);
@@ -260,21 +357,23 @@ int main(int argc, char** argv)
         cudaMemcpy(dM7[i], hC, bytes, cudaMemcpyHostToDevice);
     }
 
-    printMat(hA, n, n, "A");
-    printMat(hB, n, n, "B");
-    printMat(hC, n, n, "init C");
+    // printMat(hA, n, n, "A");
+    // printMat(hB, n, n, "B");
+    // printMat(hC, n, n, "init C");
     
-    Strassen(dA, dB, dC, n, k);
+    Strassen(dA, dB, dC, n, k, k_lim);
+    // normalParallelMatMul(dA[k], dB[k], dC[k], n, k);
+
     // int new_dim = n /2;
     // dim3 grid(new_dim, new_dim);
     // matAdd<<<1, grid>>>(dA[k], dB[k], dC[k], n, m11, m12, m12, k, true);
     // matCopy<<<1, grid>>>(dC[k], dA[k], n, m12, m21, k);
 
     cudaMemcpy(hC, dC[k], bytes, cudaMemcpyDeviceToHost);
-    printMat(hC, n, n, "result C");
+    // printMat(hC, n, n, "result C");
 
     normalMatMul(hA, hB, testC, n);
-    printMat(testC, n, n, "test C");
+    // printMat(testC, n, n, "test C");
 
     int err_count = 0;
     for (int i = 0; i < size; i++) {
