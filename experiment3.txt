@@ -1,0 +1,38 @@
+------------------
+matmul.exe 12 1
+Strassen took 3ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 2
+Strassen took 3ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 3
+Strassen took 80ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 4
+Strassen took 250ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 5
+Strassen took 559ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 6
+Strassen took 2866ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 7
+Strassen took 16087ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 8
+Strassen took 99164ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 9
+Strassen took 615027ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 10

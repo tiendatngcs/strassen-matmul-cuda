@@ -1,0 +1,47 @@
+------------------
+matmul.exe 2 1
+Strassen took 2ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 3 2
+Strassen took 4ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 4 3
+Strassen took 7ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 5 4
+Strassen took 31ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 6 5
+Strassen took 208ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 7 6
+Strassen took 1457ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 8 7
+Strassen took 10039ms
+Single sequential took 3ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 9 8
+Strassen took 72215ms
+Single sequential took 32ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 10 9
+Strassen took 574376ms
+Single sequential took 238ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 11 10

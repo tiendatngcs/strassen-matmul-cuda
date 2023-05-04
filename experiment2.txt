@@ -1,0 +1,69 @@
+------------------
+matmul.exe 2 1
+Strassen took 3ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 3 1
+Strassen took 3ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 4 1
+Strassen took 3ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 5 1
+Strassen took 3ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 6 1
+Strassen took 3ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 7 1
+Strassen took 2ms
+Single sequential took 0ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 8 1
+Strassen took 2ms
+Single sequential took 3ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 9 1
+Strassen took 2ms
+Single sequential took 30ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 10 1
+Strassen took 2ms
+Single sequential took 230ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 11 1
+Strassen took 3ms
+Single sequential took 1909ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 12 1
+Strassen took 2ms
+Single sequential took 22689ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 13 1
+Strassen took 2ms
+Single sequential took 188604ms
+Congrats, matmul calculated correctly!
+------------------
+matmul.exe 14 1
+Strassen took 3ms
+Single sequential took 1572025ms
+Houston, we have a problem! Err_count = 268435455
+------------------
+matmul.exe 15 1
+------------------
+matmul.exe 16 1
