@@ -368,17 +368,17 @@ int main(int argc, char** argv)
     cudaMemcpy(hC, dC[k], bytes, cudaMemcpyDeviceToHost);
     // printMat(hC, n, n, "result C");
 
-    // start = std::chrono::system_clock::now();
-    // normalMatMul(hA, hB, testC, n);
-    // end = std::chrono::system_clock::now();
-    // printf("Single sequential took %lldms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    start = std::chrono::system_clock::now();
+    normalMatMul(hA, hB, testC, n);
+    end = std::chrono::system_clock::now();
+    printf("Single sequential took %lldms\n", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 
     // printMat(testC, n, n, "test C");
 
     int err_count = 0;
-    // for (int i = 0; i < size; i++) {
-    //     if (hC[i] != testC[i]) err_count ++;
-    // }
+    for (int i = 0; i < size; i++) {
+        if (hC[i] != testC[i]) err_count ++;
+    }
     if (err_count == 0) {
         printf("Congrats, matmul calculated correctly!\n");
     } else {
